@@ -1,0 +1,6 @@
+# Auto-generated config for testing
+127.0.0.1 8000 master
+127.0.0.1 8001 slave
+127.0.0.1 8002 slave
+127.0.0.1 8003 slave
+127.0.0.1 8004 slave
