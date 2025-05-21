@@ -38,6 +38,38 @@ typedef struct
     int num_slaves;     // Total number of slaves
 } ThreadArgs;
 
+// Helper function to ensure all bytes are sent
+ssize_t send_all(int sockfd, const void *buf, size_t len) {
+    size_t total = 0;
+    const char *ptr = buf;
+    while (total < len) {
+        ssize_t sent = send(sockfd, ptr + total, len - total, 0);
+        if (sent <= 0) {
+            if (sent < 0)
+                perror("send failed");
+            return sent;
+        }
+        total += sent;
+    }
+    return total;
+}
+
+// Helper function to ensure all bytes are received
+ssize_t recv_all(int sockfd, void *buf, size_t len) {
+    size_t total = 0;
+    char *ptr = buf;
+    while (total < len) {
+        ssize_t received = recv(sockfd, ptr + total, len - total, 0);
+        if (received <= 0) {
+            if (received < 0)
+                perror("recv failed");
+            return received;
+        }
+        total += received;
+    }
+    return total;
+}
+
 // Function to read the configuration file
 int read_config(char master_ip[MAX_IP_LEN], SlaveInfo slaves[], int *num_slaves, int is_slave)
 {
@@ -175,7 +207,8 @@ int run_as_master(int n, int port, int num_slaves, SlaveInfo slaves[])
 
         // REQUIREMENT 1: Send the full vector y (1MB - one-to-many broadcast)
         // Same vector y sent to all slaves
-        send(sock, y, n * sizeof(int), 0);
+        // send(sock, y, n * sizeof(int), 0);
+        send_all(sock, y, n * sizeof(int));
 
         // Send matrix portion (columns)
         // We need to transpose the matrix for column-wise distribution
@@ -188,13 +221,15 @@ int run_as_master(int n, int port, int num_slaves, SlaveInfo slaves[])
                 col[i] = M[i][j];
             }
             // Send column
-            send(sock, col, n * sizeof(int), 0);
+            // send(sock, col, n * sizeof(int), 0);
+            send_all(sock, y, n * sizeof(int));
         }
 
         // REQUIREMENT 3: Receive MSE results from slave (M1PR - many-to-one personalized reduction)
         // Each slave computes part of vector e and sends back only its portion
         double partial_e[num_cols];
-        recv(sock, partial_e, num_cols * sizeof(double), 0);
+        // recv(sock, partial_e, num_cols * sizeof(double), 0);
+        recv_all(sock, partial_e, num_cols * sizeof(double));
 
         // Store received results in the appropriate portion of vector e
         for (int j = 0; j < num_cols; j++)
@@ -308,14 +343,17 @@ int run_as_slave(int port, char master_ip[MAX_IP_LEN])
 
     // REQUIREMENT 1: Receive vector y (1MB - one-to-many broadcast)
     int *y = (int *)malloc(n * sizeof(int));
-    recv(client_fd, y, n * sizeof(int), 0);
+    // recv(client_fd, y, n * sizeof(int), 0);
+    recv_all(client_fd, y, n * sizeof(int));
+
 
     // Allocate memory for column data
     int **columns = (int **)malloc(num_cols * sizeof(int *));
     for (int j = 0; j < num_cols; j++)
     {
         columns[j] = (int *)malloc(n * sizeof(int));
-        recv(client_fd, columns[j], n * sizeof(int), 0);
+        // recv(client_fd, columns[j], n * sizeof(int), 0);
+        recv_all(client_fd, columns[j], n * sizeof(int));
     }
 
     // REQUIREMENT 2: Compute MSE for each column
@@ -338,7 +376,8 @@ int run_as_slave(int port, char master_ip[MAX_IP_LEN])
     printf("\nSlave computation time: %0.9f seconds\n", comp_time);
 
     // REQUIREMENT 3: Send partial results back to master (M1PR - many-to-one personalized reduction)
-    send(client_fd, partial_e, num_cols * sizeof(double), 0);
+    // send(client_fd, partial_e, num_cols * sizeof(double), 0);
+    send_all(client_fd, partial_e, num_cols * sizeof(double));
 
     // Print a small portion of the results for verification
     printf("Computed MSE for columns %d to %d:\n", start_col, start_col + num_cols - 1);
@@ -455,7 +494,8 @@ int run_as_master_core_affine(int n, int port, int num_slaves, SlaveInfo slaves[
         send(sock, &num_cols, sizeof(int), 0);
 
         // REQUIREMENT 1: Send vector y (1MB - one-to-many broadcast)
-        send(sock, y, n * sizeof(int), 0);
+        // send(sock, y, n * sizeof(int), 0);
+        send_all(sock, y, n * sizeof(int));
 
         // Send matrix portion (columns)
         for (int j = start_col; j < start_col + num_cols; j++)
@@ -467,12 +507,14 @@ int run_as_master_core_affine(int n, int port, int num_slaves, SlaveInfo slaves[
                 col[i] = M[i][j];
             }
             // Send column
-            send(sock, col, n * sizeof(int), 0);
+            // send(sock, col, n * sizeof(int), 0);
+            send_all(sock, col, n * sizeof(int));
         }
 
         // REQUIREMENT 3: Receive MSE results from slave (M1PR - many-to-one personalized reduction)
         double partial_e[num_cols];
-        recv(sock, partial_e, num_cols * sizeof(double), 0);
+        // recv(sock, partial_e, num_cols * sizeof(double), 0);
+        recv_all(sock, partial_e, num_cols * sizeof(double));
 
         // Store received results in the appropriate portion of vector e
         for (int j = 0; j < num_cols; j++)
